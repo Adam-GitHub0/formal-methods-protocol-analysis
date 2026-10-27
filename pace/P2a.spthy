@@ -1,0 +1,130 @@
+theory P2a
+begin
+
+builtins: symmetric-encryption
+
+
+
+
+/* A --> B: x
+B --> A: y  
+A ---> B: [y]k(A,B)
+B --> A: [x]k(B,A)
+*/
+
+
+rule ShareKey:  // share a key pair between two parties.
+  [Fr(~kAB)]
+  --[ShareKey($A, $B, ~kAB)]->
+   [!SharedKey($A, $B, ~kAB)]
+
+rule Reveal:
+  [!SharedKey($A, $B, ~kAB),!SharedKey($B, $A, ~kBA) ]
+  --[Reveal($A)]->
+  [ Out(<~kAB,~kBA>)] 
+
+rule Init_A:
+    [!SharedKey($I,$R,~kAB),!SharedKey($R,$I,~kBA), Fr(~id)]
+    --[Create_A($I,~id)]->
+    [St_A_1($I,~id,$R,~kAB,~kBA)]
+
+rule Init_B:
+  [!SharedKey($I,$R,~kAB),!SharedKey($R,$I,~kBA), Fr(~id)]
+    --[Create_B($R,~id)]->
+    [St_B_1($R,~id,$I,~kAB,~kBA)]
+
+
+rule A_1_send:
+    [St_A_1($I,~id,$R,~kAB,~kBA), Fr(~x)]
+    --[Send($I,~x)]->
+    [St_A_2($I,~id,$R,~kAB,~kBA,~x),Out(~x)]
+
+rule B_1_receive:
+    [St_B_1($R,~id,$I,~kAB,~kBA),In(x)]
+    --[Receive($R,x)]->
+    [St_B_2($R,~id,$I,~kAB,~kBA,x)]
+
+rule B_2_send:
+    [St_B_2($R,~id,$I,~kAB,~kBA,x),Fr(~y)]
+    --[Send($R,~y),Running($R,$I,<'I','R',<x,~y> >)]->
+    [St_B_3($R,~id,$I,~kAB,~kBA,x,~y),Out(~y)]
+
+rule A_2_receive:
+    [St_A_2($I,~id,$R,~kAB,~kBA,~x),In(y)]
+    --[Receive($I,y)]->
+    [St_A_3($I,~id,$R,~kAB,~kBA,~x,y)]
+    
+rule A_3_send:
+    [St_A_3($I,~id,$R,~kAB,~kBA,~x,y)]
+    --[Send($I,y),Running($I,$R,<'R','I',<~x,y> >)]->
+    [St_A_4($I,~id,$R,~kAB,~kBA,~x,y),Out(senc(y,~kAB))]
+
+rule B_3_receive:
+    [St_B_3($R,~id,$I,~kAB,~kBA,x,~y),In(senc(~y,~kAB))]
+    --[Receive($R,~y), Commit($R,$I,<'R','I',<x,~y> >)]->
+    [St_B_4($R,~id,$I,~kAB,~kBA,x,~y)]
+
+rule B_4_send:
+    [St_B_4($R,~id,$I,~kAB,~kBA,x, ~y)]
+    --[Send($R,x),FinishedB($R,$I,<x,~y>)]->
+    [St_B_5($R,~id,$I,~kAB,~kBA,x),Out(senc(x,~kBA))]
+
+rule A_4_receive:
+    [St_A_4($I,~id,$R,~kAB,~kBA,~x,y),In(senc(~x,~kBA))]
+    --[Receive($I,~x),Commit($I,$R,<'I','R',<~x,y> >),FinishedA($I,$R, <~x,y>)]->
+    [St_A_5($I,~id,$R,~kAB,~kBA,~x,y)]
+
+
+
+lemma executable:
+exists-trace "Ex #i #j A B m.
+FinishedA(A, B, m)@i & FinishedB(B,A,m)@j & not (A=B) & not(Ex #k. Reveal(A)@k) & not(Ex #k. Reveal(B)@k)"
+
+// Falsified
+lemma injectiveagreementINITIATOR:
+  "All a b t #i.
+    Commit(a,b,<'I','R',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'I','R',t>)@j
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'I','R',t>)@i2
+                           & not (#i2 = #i)))" 
+
+// Falsified                        
+lemma injectiveagreementRESPONDER:
+  "All a b t #i.
+    Commit(a,b,<'R','I',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'R','I',t>)@j
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'R','I',t>)@i2
+                           & not (#i2 = #i)))"
+// Falsified
+lemma noninjectiveagreementINITIATOR:
+  "All a b t #i.
+    Commit(a,b,<'I','R',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'I','R',t>)@j)"
+
+// Falsified
+lemma noninjectiveagreementRESPONDER:
+  "All a b t #i.
+    Commit(a,b,<'R','I',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'R','I',t>)@j)"
+
+
+
+restriction onedirectionnalsharedkey:
+  "All A B k1 k2 #i #j. ShareKey(A,B,k1)@i & ShareKey(A,B,k2)@j ==> #i = #j & k1=k2"
+
+restriction only1threadsA:
+  "All A  id1 id2 #i #j. Create_A(A,id1)@i & Create_A(A,id2)@j ==> #i = #j & id1=id2"
+
+restriction onlyonerole:
+  "All X id1 id2 #i #j. Create_A(X,id1)@i & Create_B(X,id2)@j ==> F "
+
+
+restriction only1threadsB:
+  "All B  id1 id2 #i #j. Create_B(B,id1)@i & Create_B(B,id2)@j ==> #i = #j & id1=id2"
+
+
+end

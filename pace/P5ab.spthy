@@ -1,0 +1,146 @@
+theory P5ab
+begin
+
+builtins: symmetric-encryption,diffie-hellman, hashing
+functions: map/2
+
+
+/* 
+A---> B:  <g^x,[s]h(K(A,B))> 
+B ---> A: g^y 
+A ---> B: ['I',A,g^y]Kab
+B ---> A: ['R',B,g^x ]Kab
+*/
+
+
+rule ShareKey:  // share a key pair between two parties.
+  [Fr(~sharedKeyAB)]
+  --[ShareKey($A, $B, ~sharedKeyAB)]->
+   [!SharedKey($A, $B, ~sharedKeyAB),!SharedKey($B, $A, ~sharedKeyAB)]
+
+rule Reveal:
+  [!SharedKey($A, $B, ~sharedKeyAB)]
+  --[Reveal($A)]->
+  [ Out(<~sharedKeyAB>)] 
+
+rule Init_A:
+    [!SharedKey($I,$R,~sharedKeyAB), Fr(~id)]
+    --[Create_A($I,~id)]->
+    [St_A_1($I,~id,$R,~sharedKeyAB)]
+
+rule Init_B:
+  [!SharedKey($R,$I,~sharedKeyAB), Fr(~id)]
+    --[Create_B($R,~id)]->
+    [St_B_1($R,~id,$I,~sharedKeyAB)]
+
+
+rule A_1_send:
+let g = map(~s,$p)
+in 
+    [St_A_1($I,~id,$R,~sharedKeyAB), Fr(~x),Fr(~s)]
+    --[Send($I,g ^ ~x)]->
+    [St_A_2($I,~id,$R,~sharedKeyAB,~s,$p,~x),Out(< g ^ ~x, senc(~s ,h(~sharedKeyAB))>)]
+
+rule B_1_receive:
+    [St_B_1($R,~id,$I,~sharedKeyAB),In(<X,senc(s,h(~sharedKeyAB))>)]
+    --[Receive($R,X),NotNeutral(X)]->
+    [St_B_2($R,~id,$I,~sharedKeyAB,s,$p,X)]
+
+rule B_2_send:
+    let g = map(s,$p)
+        Kab = h(X ^ ~y)
+    in
+    [St_B_2($R,~id,$I,~sharedKeyAB,s,$p,X),Fr(~y)]
+    --[Send($R,g ^ ~y),Running($R,$I,<'I','R',<X, g ^ ~y ,Kab> >)]->
+    [St_B_3($R,~id,$I,~sharedKeyAB,s,$p,X,~y,Kab),Out(g ^ ~y)]
+
+rule A_2_receive:
+let Kab = h(Y ^ ~x)
+in
+    [St_A_2($I,~id,$R,~sharedKeyAB,~s,$p,~x),In(Y)]
+    --[Receive($I,Y),NotNeutral(Y)]->
+    [St_A_3($I,~id,$R,~sharedKeyAB,~s,$p,~x,Y,Kab)]
+    
+rule A_3_send:
+let g = map(~s,$p)
+in
+    [St_A_3($I,~id,$R,~sharedKeyAB,~s,$p,~x,Y,Kab)]
+    --[Send($I,Y),Running($I,$R,<'R','I',<g ^ ~x,Y,Kab> >)]->
+    [St_A_4($I,~id,$R,~sharedKeyAB,~s,$p,~x,Y,Kab),Out(senc(<'I',$I,Y>,Kab))]
+
+rule B_3_receive:
+let g = map(s,$p)
+in
+    [St_B_3($R,~id,$I,~sharedKeyAB,s,$p,X,~y,Kab),In(senc(<'I',$I,g ^ ~y>,Kab))]
+    --[Receive($R,X),Commit($R,$I,<'R','I',<X,g ^ ~y,Kab> >)]->
+    [St_B_4($R,~id,$I,~sharedKeyAB,s,$p,X,~y,Kab)]
+
+rule B_4_send:
+let g = map(s,$p)
+in
+    [St_B_4($R,~id,$I,~sharedKeyAB,s,$p,X,~y,Kab)]
+    --[Send($R,X),Secret($R,$I,Kab),FinishedB($R,$I,<X, g ^ ~y,Kab>)]->
+    [St_B_5($R,~id,$I,~sharedKeyAB,s,$p,X,~y,Kab),Out(senc(<'R',$R,X>,Kab))]
+
+rule A_4_receive:
+let g = map(~s,$p)
+in
+    [St_A_4($I,~id,$R,~sharedKeyAB,~s,$p,~x,Y,Kab),In(senc(<'R',$R,g ^ ~x>,Kab))]
+    --[Receive($I,g ^ ~x),Commit($I,$R,<'I','R',<g ^ ~x,Y,Kab> >),Secret($I,$R,Kab),FinishedA($I,$R, <g ^ ~x,Y,Kab>)]->
+    [St_A_5($I,~id,$R,~sharedKeyAB,~s,$p,~x,Y,Kab)]
+
+
+
+lemma executable:
+exists-trace "Ex #i #j A B m.
+FinishedA(A, B, m)@i & FinishedB(B,A,m)@j & not (A=B) & not(Ex #k. Reveal(A)@k) & not(Ex #k. Reveal(B)@k)"
+
+// Verified
+lemma injectiveagreementINITIATOR:
+  "All a b t #i.
+    Commit(a,b,<'I','R',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'I','R',t>)@j
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'I','R',t>)@i2
+                           & not (#i2 = #i)))" 
+
+// Verified                        
+lemma injectiveagreementRESPONDER:
+  "All a b t #i.
+    Commit(a,b,<'R','I',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'R','I',t>)@j
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'R','I',t>)@i2
+                           & not (#i2 = #i)))"
+// Verified
+lemma noninjectiveagreementINITIATOR:
+  "All a b t #i.
+    Commit(a,b,<'I','R',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'I','R',t>)@j)"
+// Verified  
+lemma noninjectiveagreementRESPONDER:
+  "All a b t #i.
+    Commit(a,b,<'R','I',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'R','I',t>)@j)"
+
+// Verified
+lemma secrecy:
+  "All A B x #i.
+    Secret(A,B,x)@i &
+    not ((Ex #r. Reveal(A)@r) | (Ex #r. Reveal(B)@r))
+    ==> not (Ex #j. K(x)@j)"
+// Verified
+lemma secrecy_PFS:
+  "All A B x #i.
+    Secret(A,B,x)@i &
+    not ((Ex #r. Reveal(A)@r & r < i) |
+         (Ex #r. Reveal(B)@r & r < i))
+    ==> not (Ex #j. K(x)@j)"
+
+
+restriction notNeutral:
+    "All x #i. NotNeutral(x)@i ==> not(x = DH_neutral)"
+
+end

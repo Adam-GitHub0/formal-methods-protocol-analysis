@@ -1,0 +1,93 @@
+theory OTR2
+begin
+
+builtins: diffie-hellman,signing
+
+/* 
+A → B : <g^x,sign(g^x,skA), pkA>
+B → A : <g^y,sign(g^y,skB), pkB>
+*/
+
+
+rule Register_pk:  
+    [Fr(~ltk)]
+  --[Register($P)]->
+   [!Ltk($P, ~ltk),!Pk($P, pk(~ltk)),Out(pk(~ltk))]
+
+rule Reveal_ltk:
+  [!Ltk($P, ~ltk)]
+  --[Reveal($P)]->
+  [ Out(~ltk)] 
+
+rule Init_A:
+    [!Ltk($I, ~ltkI),!Pk($R,pkR),Fr(~id)]
+    --[Create_A($I,~id)]->
+    [St_A_1($I,~id,$R,~ltkI,pkR)]
+
+rule Init_B:
+  [!Ltk($R, ~ltkR),!Pk($I,pkI), Fr(~id)]
+    --[Create_B($R,~id)]->
+    [St_B_1($R,~id,$I,~ltkR,pkI)]
+
+rule A_1_send:
+let X = 'g' ^ ~x 
+    t1= <X,sign(<X>, ~ltkI),pk(~ltkI)>
+in
+  [St_A_1($I,~id,$R,~ltkI,pkR), Fr(~x)]
+  --[Send($I,X)]->
+  [St_A_2($I,~id,$R,~ltkI,pkR,~x,t1),Out(t1)]
+
+rule B_1_receive:
+let t1 = <X,sign(<X>, ltkI),pk(ltkI)>
+in 
+    [St_B_1($R,~id,$I,~ltkR,pk(ltkI)), In(t1)]
+    --[Receive($R,X)]->
+    [St_B_2($R,~id,$I,~ltkR,pk(ltkI),X,t1)]
+
+rule B_2_send:
+let Y = 'g' ^ ~y
+    Gxy = X ^ ~y
+    t2=<Y,sign(<Y>, ~ltkR),pk(~ltkR)>
+
+in 
+    [St_B_2($R,~id,$I,~ltkR,pkI,X,t1), Fr(~y)]
+    --[Send($R,Y),KeyIdentityAssociation($R,$I,Gxy),FinishedB($R,$I,<t1,t2,Gxy>)]->
+    [St_B_3($R,~id,$I,~ltkR,pkI,X,~y,t1,t2),Out(t2)]
+
+
+rule A_2_receive:
+let X = 'g' ^ ~x
+    t2 = <Y,sign(<Y>, ltkR),pk(ltkR)>
+    Gxy = Y^~x
+in
+    [St_A_2($I,~id,$R,~ltkI,pk(ltkR),~x,t1), In(t2)]
+    --[Receive($I,Y), KeyIdentityAssociation($I,$R,Gxy),
+    FinishedA($I,$R,<t1,t2,Gxy>)]->
+    [St_A_3($I,~id,$R,~ltkI,pk(ltkR),~x,Y,t1,t2)]
+
+
+
+lemma executable:
+exists-trace "Ex #i #j A B m.
+FinishedA(A, B, m)@i & FinishedB(B,A,m)@j & not (A=B) & not(Ex #k. Reveal(A)@k) & not(Ex #k. Reveal(B)@k)"
+
+// Falsified
+lemma keyIsAssociatedWithRightIdentity:
+    "All A E B k #i #j.
+      KeyIdentityAssociation(A,B,k)@i & KeyIdentityAssociation(B,E,k)@j &
+      not ((Ex #r. Reveal(A)@r) | (Ex #r. Reveal(B)@r))
+      ==> A=E"
+
+restriction notalkwithself:
+  "All A B k #i. KeyIdentityAssociation(A,B,k)@i ==> not(A=B)"
+  
+restriction onekeypername:
+  "All A #i #j. Register(A)@i & Register(A)@j ==> #i=#j"
+
+restriction oneInitiator:
+  "All A B id1 id2 #i #j. Create_A(A,id1)@i & Create_A(B,id2)@j ==> A=B & #i=#j & id1=id2"
+
+restriction oneResponder:
+    "All A B id1 id2 #i #j. Create_B(A,id1)@i & Create_B(B,id2)@j ==> A=B & #i=#j & id1=id2"
+      
+end

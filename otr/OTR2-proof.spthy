@@ -1,0 +1,346 @@
+theory OTR2 begin
+
+// Function signature and definition of the equational theory E
+
+builtins: diffie-hellman
+functions: fst/1, pair/2, pk/1, sign/2, snd/1, true/0, verify/3
+equations:
+    fst(<x.1, x.2>) = x.1,
+    snd(<x.1, x.2>) = x.2,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true
+
+
+
+
+
+
+
+
+
+rule (modulo E) Register_pk:
+   [ Fr( ~ltk ) ]
+  --[ Register( $P ) ]->
+   [ !Ltk( $P, ~ltk ), !Pk( $P, pk(~ltk) ), Out( pk(~ltk) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_ltk:
+   [ !Ltk( $P, ~ltk ) ] --[ Reveal( $P ) ]-> [ Out( ~ltk ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_A:
+   [ !Ltk( $I, ~ltkI ), !Pk( $R, pkR ), Fr( ~id ) ]
+  --[ Create_A( $I, ~id ) ]->
+   [ St_A_1( $I, ~id, $R, ~ltkI, pkR ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_B:
+   [ !Ltk( $R, ~ltkR ), !Pk( $I, pkI ), Fr( ~id ) ]
+  --[ Create_B( $R, ~id ) ]->
+   [ St_B_1( $R, ~id, $I, ~ltkR, pkI ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_1_send:
+   [ St_A_1( $I, ~id, $R, ~ltkI, pkR ), Fr( ~x ) ]
+  --[ Send( $I, 'g'^~x ) ]->
+   [
+   St_A_2( $I, ~id, $R, ~ltkI, pkR, ~x,
+           <'g'^~x, sign('g'^~x, ~ltkI), pk(~ltkI)>
+   ),
+   Out( <'g'^~x, sign('g'^~x, ~ltkI), pk(~ltkI)> )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_1_receive:
+   [
+   St_B_1( $R, ~id, $I, ~ltkR, pk(ltkI) ),
+   In( <X, sign(X, ltkI), pk(ltkI)> )
+   ]
+  --[ Receive( $R, X ) ]->
+   [
+   St_B_2( $R, ~id, $I, ~ltkR, pk(ltkI), X,
+           <X, sign(X, ltkI), pk(ltkI)>
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_2_send:
+   [ St_B_2( $R, ~id, $I, ~ltkR, pkI, X, t1 ), Fr( ~y ) ]
+  --[
+  Send( $R, 'g'^~y ), KeyIdentityAssociation( $R, $I, X^~y ),
+  FinishedB( $R, $I,
+             <t1, <'g'^~y, sign('g'^~y, ~ltkR), pk(~ltkR)>, X^~y>
+  )
+  ]->
+   [
+   St_B_3( $R, ~id, $I, ~ltkR, pkI, X, ~y, t1,
+           <'g'^~y, sign('g'^~y, ~ltkR), pk(~ltkR)>
+   ),
+   Out( <'g'^~y, sign('g'^~y, ~ltkR), pk(~ltkR)> )
+   ]
+
+  /*
+  rule (modulo AC) B_2_send:
+     [ St_B_2( $R, ~id, $I, ~ltkR, pkI, X, t1 ), Fr( ~y ) ]
+    --[
+    Send( $R, 'g'^~y ), KeyIdentityAssociation( $R, $I, z ),
+    FinishedB( $R, $I,
+               <t1, <'g'^~y, sign('g'^~y, ~ltkR), pk(~ltkR)>, z>
+    )
+    ]->
+     [
+     St_B_3( $R, ~id, $I, ~ltkR, pkI, X, ~y, t1,
+             <'g'^~y, sign('g'^~y, ~ltkR), pk(~ltkR)>
+     ),
+     Out( <'g'^~y, sign('g'^~y, ~ltkR), pk(~ltkR)> )
+     ]
+    variants (modulo AC)
+    1. ~y    = ~y.16
+       X     = X.17
+       z     = X.17^~y.16
+    
+    2. ~y    = ~y.20
+       X     = z.25^inv(~y.20)
+       z     = z.25
+    
+    3. ~y    = ~y.41
+       X     = x.75^x.76
+       z     = x.75^(~y.41*x.76)
+    
+    4. ~y    = ~y.42
+       X     = x.77^inv((~y.42*x.78))
+       z     = x.77^inv(x.78)
+    
+    5. ~y    = ~y.42
+       X     = x.77^(x.78*inv(~y.42))
+       z     = x.77^x.78
+    
+    6. ~y    = ~y.43
+       X     = x.78^(x.79*inv((~y.43*x.80)))
+       z     = x.78^(x.79*inv(x.80))
+    
+    7. X     = DH_neutral
+       z     = DH_neutral
+  */
+
+rule (modulo E) A_2_receive:
+   [
+   St_A_2( $I, ~id, $R, ~ltkI, pk(ltkR), ~x, t1 ),
+   In( <Y, sign(Y, ltkR), pk(ltkR)> )
+   ]
+  --[
+  Receive( $I, Y ), KeyIdentityAssociation( $I, $R, Y^~x ),
+  FinishedA( $I, $R, <t1, <Y, sign(Y, ltkR), pk(ltkR)>, Y^~x> )
+  ]->
+   [
+   St_A_3( $I, ~id, $R, ~ltkI, pk(ltkR), ~x, Y, t1,
+           <Y, sign(Y, ltkR), pk(ltkR)>
+   )
+   ]
+
+  /*
+  rule (modulo AC) A_2_receive:
+     [
+     St_A_2( $I, ~id, $R, ~ltkI, pk(ltkR), ~x, t1 ),
+     In( <Y, sign(Y, ltkR), pk(ltkR)> )
+     ]
+    --[
+    Receive( $I, Y ), KeyIdentityAssociation( $I, $R, z ),
+    FinishedA( $I, $R, <t1, <Y, sign(Y, ltkR), pk(ltkR)>, z> )
+    ]->
+     [
+     St_A_3( $I, ~id, $R, ~ltkI, pk(ltkR), ~x, Y, t1,
+             <Y, sign(Y, ltkR), pk(ltkR)>
+     )
+     ]
+    variants (modulo AC)
+    1. ~x    = ~x.10
+       Y     = Y.10
+       z     = Y.10^~x.10
+    
+    2. ~x    = ~x.10
+       Y     = x.11^inv(~x.10)
+       z     = x.11
+    
+    3. ~x    = ~x.10
+       Y     = x.11^inv((~x.10*x.12))
+       z     = x.11^inv(x.12)
+    
+    4. ~x    = ~x.10
+       Y     = x.11^(x.12*inv(~x.10))
+       z     = x.11^x.12
+    
+    5. ~x    = ~x.10
+       Y     = x.11^(x.12*inv((~x.10*x.13)))
+       z     = x.11^(x.12*inv(x.13))
+    
+    6. ~x    = ~x.12
+       Y     = x.10^x.11
+       z     = x.10^(x.11*~x.12)
+    
+    7. Y     = DH_neutral
+       z     = DH_neutral
+  */
+
+lemma executable:
+  exists-trace
+  "∃ #i #j A B m.
+    ((((FinishedA( A, B, m ) @ #i) ∧ (FinishedB( B, A, m ) @ #j)) ∧
+      (¬(A = B))) ∧
+     (¬(∃ #k. Reveal( A ) @ #k))) ∧
+    (¬(∃ #k. Reveal( B ) @ #k))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ #i #j A B m.
+  (FinishedA( A, B, m ) @ #i) ∧ (FinishedB( B, A, m ) @ #j)
+ ∧
+  (¬(A = B)) ∧
+  (∀ #k. (Reveal( A ) @ #k) ⇒ ⊥) ∧
+  (∀ #k. (Reveal( B ) @ #k) ⇒ ⊥)"
+*/
+simplify
+solve( St_A_2( $I, ~id, $R, ~ltkI, pk(~ltkR), ~x, t1 ) ▶₀ #i )
+  case A_1_send
+  solve( St_B_2( $R, ~id.1, $I, ~ltkR, pkI, 'g'^~x,
+                 <'g'^~x, sign('g'^~x, ~ltkI), pk(~ltkI)>
+         ) ▶₀ #j )
+    case B_1_receive
+    solve( !KU( sign('g'^~y, ~ltkR) ) @ #vk.3 )
+      case B_2_send
+      solve( !KU( sign('g'^~x, ~ltkI) ) @ #vk.8 )
+        case A_1_send
+        solve( !KU( pk(~ltkR) ) @ #vk.5 )
+          case B_2_send
+          solve( !KU( 'g'^~y ) @ #vk.7 )
+            case B_2_send
+            solve( !KU( 'g'^~x ) @ #vk.8 )
+              case A_1_send
+              solve( !KU( pk(~ltkI) ) @ #vk.9 )
+                case A_1_send
+                SOLVED // trace found
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma keyIsAssociatedWithRightIdentity:
+  all-traces
+  "∀ A E B k #i #j.
+    (((KeyIdentityAssociation( A, B, k ) @ #i) ∧
+      (KeyIdentityAssociation( B, E, k ) @ #j)) ∧
+     (¬((∃ #r. Reveal( A ) @ #r) ∨ (∃ #r. Reveal( B ) @ #r)))) ⇒
+    (A = E)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ A E B k #i #j.
+  (KeyIdentityAssociation( A, B, k ) @ #i) ∧
+  (KeyIdentityAssociation( B, E, k ) @ #j)
+ ∧
+  (∀ #r. (Reveal( A ) @ #r) ⇒ ⊥) ∧
+  (∀ #r. (Reveal( B ) @ #r) ⇒ ⊥) ∧
+  (¬(A = E))"
+*/
+simplify
+solve( KeyIdentityAssociation( A, B, k ) @ #i )
+  case A_2_receive
+  solve( St_A_2( $I, ~id, $R, ~ltkI, pk(ltkR), ~x, t1 ) ▶₀ #i )
+    case A_1_send
+    solve( KeyIdentityAssociation( $R, E, k ) @ #j )
+      case B_2_send
+      solve( St_B_2( $R, ~id.1, $I.1, ~ltkR, pkI, X, t1 ) ▶₀ #j )
+        case B_1_receive
+        solve( !KU( sign(Y, ~ltk) ) @ #vk.3 )
+          case B_2_send
+          solve( !KU( sign('g'^~x, ~ltk.1) ) @ #vk.8 )
+            case c_sign
+            solve( !KU( ~ltk.1 ) @ #vk.10 )
+              case Reveal_ltk
+              solve( !KU( pk(~ltk) ) @ #vk.7 )
+                case B_2_send
+                solve( !KU( pk(~ltk.1) ) @ #vk.10 )
+                  case Register_pk
+                  solve( !KU( 'g'^~y ) @ #vk.9 )
+                    case B_2_send
+                    solve( !KU( 'g'^~x ) @ #vk.10 )
+                      case A_1_send
+                      SOLVED // trace found
+                    qed
+                  qed
+                qed
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+restriction notalkwithself:
+  "∀ A B k #i. (KeyIdentityAssociation( A, B, k ) @ #i) ⇒ (¬(A = B))"
+  // safety formula
+
+restriction onekeypername:
+  "∀ A #i #j.
+    ((Register( A ) @ #i) ∧ (Register( A ) @ #j)) ⇒ (#i = #j)"
+  // safety formula
+
+restriction oneInitiator:
+  "∀ A B id1 id2 #i #j.
+    ((Create_A( A, id1 ) @ #i) ∧ (Create_A( B, id2 ) @ #j)) ⇒
+    (((A = B) ∧ (#i = #j)) ∧ (id1 = id2))"
+  // safety formula
+
+restriction oneResponder:
+  "∀ A B id1 id2 #i #j.
+    ((Create_B( A, id1 ) @ #i) ∧ (Create_B( B, id2 ) @ #j)) ⇒
+    (((A = B) ∧ (#i = #j)) ∧ (id1 = id2))"
+  // safety formula
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+WARNING: the following wellformedness checks failed!
+
+Message Derivation Checks
+=========================
+
+  The variables of the follwing rule(s) are not derivable from their premises, you may be performing unintended pattern matching.
+
+Rule B_1_receive: 
+Failed to derive Variable(s): ltkI
+
+Rule A_2_receive: 
+Failed to derive Variable(s): ltkR
+*/
+
+/*
+Generated from:
+Tamarin version 1.8.0
+Maude version 2.7.1
+Git revision: UNKNOWN, branch: UNKNOWN
+Compiled at: 2023-09-02 13:40:44.835695 UTC
+*/
+
+end

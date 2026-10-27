@@ -1,0 +1,184 @@
+theory P1 begin
+
+// Function signature and definition of the equational theory E
+
+functions: fst/1, pair/2, sdec/2, senc/2, snd/1
+equations:
+    fst(<x.1, x.2>) = x.1,
+    sdec(senc(x.1, x.2), x.2) = x.1,
+    snd(<x.1, x.2>) = x.2
+
+
+
+
+
+
+
+rule (modulo E) ShareKey:
+   [ Fr( ~kAB ) ]
+  --[ ShareKey( $A, $B, ~kAB ) ]->
+   [ !SharedKey( $A, $B, ~kAB ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal:
+   [ !SharedKey( $A, $B, ~kAB ), !SharedKey( $B, $A, ~kBA ) ]
+  --[ Reveal( $A ) ]->
+   [ Out( <~kAB, ~kBA> ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_A:
+   [ !SharedKey( $I, $R, ~kAB ), !SharedKey( $R, $I, ~kBA ), Fr( ~id )
+   ]
+  --[ Create_A( $I, ~id ) ]->
+   [ St_A_1( $I, ~id, $R, ~kAB, ~kBA ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_B:
+   [ !SharedKey( $I, $R, ~kAB ), !SharedKey( $R, $I, ~kBA ), Fr( ~id )
+   ]
+  --[ Create_B( $R, ~id ) ]->
+   [ St_B_1( $R, ~id, $I, ~kAB, ~kBA ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_1_send:
+   [ St_A_1( $I, ~id, $R, ~kAB, ~kBA ), Fr( ~x ) ]
+  --[ Send( $I, ~x ) ]->
+   [ St_A_2( $I, ~id, $R, ~kAB, ~kBA, ~x ), Out( ~x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_1_receive:
+   [ St_B_1( $R, ~id, $I, ~kAB, ~kBA ), In( x ) ]
+  --[ Receive( $R, x ) ]->
+   [ St_B_2( $R, ~id, $I, ~kAB, ~kBA, x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_2_send:
+   [ St_B_2( $R, ~id, $I, ~kAB, ~kBA, x ) ]
+  --[
+  Send( $R, x ), Running( $R, $I, <'I', 'R', x> ),
+  FinishedB( $R, $I, x )
+  ]->
+   [ St_B_3( $R, ~id, $I, ~kAB, ~kBA, x ), Out( senc(x, ~kBA) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_2_receive:
+   [ St_A_2( $I, ~id, $R, ~kAB, ~kBA, ~x ), In( senc(~x, ~kBA) ) ]
+  --[
+  Receive( $I, ~x ), Commit( $I, $R, <'I', 'R', ~x> ),
+  FinishedA( $I, $R, ~x )
+  ]->
+   [ St_A_3( $I, ~id, $R, ~kAB, ~kBA, ~x ) ]
+
+  /* has exactly the trivial AC variant */
+
+lemma executable:
+  exists-trace
+  "∃ #i #j A B m.
+    ((((FinishedA( A, B, m ) @ #i) ∧ (FinishedB( B, A, m ) @ #j)) ∧
+      (¬(A = B))) ∧
+     (¬(∃ #k. Reveal( A ) @ #k))) ∧
+    (¬(∃ #k. Reveal( B ) @ #k))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ #i #j A B m.
+  (FinishedA( A, B, m ) @ #i) ∧ (FinishedB( B, A, m ) @ #j)
+ ∧
+  (¬(A = B)) ∧
+  (∀ #k. (Reveal( A ) @ #k) ⇒ ⊥) ∧
+  (∀ #k. (Reveal( B ) @ #k) ⇒ ⊥)"
+*/
+simplify
+solve( St_A_2( $I, ~id, $R, ~kAB, ~kBA, ~x ) ▶₀ #i )
+  case A_1_send
+  solve( St_B_2( $R, ~id.1, $I, ~kAB.1, ~kBA.1, ~x ) ▶₀ #j )
+    case B_1_receive
+    solve( !KU( senc(~x, ~kBA) ) @ #vk )
+      case B_2_send
+      solve( !KU( ~x ) @ #vk.1 )
+        case A_1_send
+        SOLVED // trace found
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    ((Commit( a, b, <'I', 'R', t> ) @ #i) ∧
+     (¬((∃ #r. Reveal( a ) @ #r) ∨ (∃ #r. Reveal( b ) @ #r)))) ⇒
+    (∃ #j.
+      (Running( b, a, <'I', 'R', t> ) @ #j) ∧
+      (¬(∃ a2 b2 #i2.
+          (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ (¬(#i2 = #i)))))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #r. (Reveal( a ) @ #r) ⇒ ⊥) ∧
+  (∀ #r. (Reveal( b ) @ #r) ⇒ ⊥) ∧
+  (∀ #j.
+    (Running( b, a, <'I', 'R', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ ¬(#i2 = #i))"
+*/
+simplify
+solve( St_A_2( $I, ~id, $R, ~kAB, ~kBA, ~x ) ▶₀ #i )
+  case A_1_send
+  solve( !KU( senc(~x, ~kBA) ) @ #vk )
+    case B_2_send
+    solve( (#i2 < #i)  ∥ (#i < #i2) )
+      case case_1
+      solve( St_A_2( $I.1, ~id.1, $R.1, ~kAB.1, ~kBA.1, ~x ) ▶₀ #i2 )
+        case A_1_send
+        by contradiction /* cyclic */
+      qed
+    next
+      case case_2
+      solve( St_A_2( $I.1, ~id.1, $R.1, ~kAB.1, ~kBA.1, ~x ) ▶₀ #i2 )
+        case A_1_send
+        by contradiction /* cyclic */
+      qed
+    qed
+  next
+    case c_senc
+    solve( !KU( ~kBA ) @ #vk.2 )
+      case Reveal_case_1
+      by contradiction /* from formulas */
+    next
+      case Reveal_case_2
+      by contradiction /* from formulas */
+    qed
+  qed
+qed
+
+
+
+
+
+
+
+
+
+
+
+/* All wellformedness checks were successful. */
+
+/*
+Generated from:
+Tamarin version 1.8.0
+Maude version 2.7.1
+Git revision: UNKNOWN, branch: UNKNOWN
+Compiled at: 2023-09-02 13:40:44.835695 UTC
+*/
+
+end

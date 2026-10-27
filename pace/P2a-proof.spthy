@@ -1,0 +1,320 @@
+theory P2a begin
+
+// Function signature and definition of the equational theory E
+
+functions: fst/1, pair/2, sdec/2, senc/2, snd/1
+equations:
+    fst(<x.1, x.2>) = x.1,
+    sdec(senc(x.1, x.2), x.2) = x.1,
+    snd(<x.1, x.2>) = x.2
+
+
+
+
+
+
+
+rule (modulo E) ShareKey:
+   [ Fr( ~kAB ) ]
+  --[ ShareKey( $A, $B, ~kAB ) ]->
+   [ !SharedKey( $A, $B, ~kAB ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal:
+   [ !SharedKey( $A, $B, ~kAB ), !SharedKey( $B, $A, ~kBA ) ]
+  --[ Reveal( $A ) ]->
+   [ Out( <~kAB, ~kBA> ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_A:
+   [ !SharedKey( $I, $R, ~kAB ), !SharedKey( $R, $I, ~kBA ), Fr( ~id )
+   ]
+  --[ Create_A( $I, ~id ) ]->
+   [ St_A_1( $I, ~id, $R, ~kAB, ~kBA ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_B:
+   [ !SharedKey( $I, $R, ~kAB ), !SharedKey( $R, $I, ~kBA ), Fr( ~id )
+   ]
+  --[ Create_B( $R, ~id ) ]->
+   [ St_B_1( $R, ~id, $I, ~kAB, ~kBA ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_1_send:
+   [ St_A_1( $I, ~id, $R, ~kAB, ~kBA ), Fr( ~x ) ]
+  --[ Send( $I, ~x ) ]->
+   [ St_A_2( $I, ~id, $R, ~kAB, ~kBA, ~x ), Out( ~x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_1_receive:
+   [ St_B_1( $R, ~id, $I, ~kAB, ~kBA ), In( x ) ]
+  --[ Receive( $R, x ) ]->
+   [ St_B_2( $R, ~id, $I, ~kAB, ~kBA, x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_2_send:
+   [ St_B_2( $R, ~id, $I, ~kAB, ~kBA, x ), Fr( ~y ) ]
+  --[ Send( $R, ~y ), Running( $R, $I, <'I', 'R', x, ~y> ) ]->
+   [ St_B_3( $R, ~id, $I, ~kAB, ~kBA, x, ~y ), Out( ~y ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_2_receive:
+   [ St_A_2( $I, ~id, $R, ~kAB, ~kBA, ~x ), In( y ) ]
+  --[ Receive( $I, y ) ]->
+   [ St_A_3( $I, ~id, $R, ~kAB, ~kBA, ~x, y ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_3_send:
+   [ St_A_3( $I, ~id, $R, ~kAB, ~kBA, ~x, y ) ]
+  --[ Send( $I, y ), Running( $I, $R, <'R', 'I', ~x, y> ) ]->
+   [ St_A_4( $I, ~id, $R, ~kAB, ~kBA, ~x, y ), Out( senc(y, ~kAB) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_3_receive:
+   [ St_B_3( $R, ~id, $I, ~kAB, ~kBA, x, ~y ), In( senc(~y, ~kAB) ) ]
+  --[ Receive( $R, ~y ), Commit( $R, $I, <'R', 'I', x, ~y> ) ]->
+   [ St_B_4( $R, ~id, $I, ~kAB, ~kBA, x, ~y ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_4_send:
+   [ St_B_4( $R, ~id, $I, ~kAB, ~kBA, x, ~y ) ]
+  --[ Send( $R, x ), FinishedB( $R, $I, <x, ~y> ) ]->
+   [ St_B_5( $R, ~id, $I, ~kAB, ~kBA, x ), Out( senc(x, ~kBA) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_4_receive:
+   [ St_A_4( $I, ~id, $R, ~kAB, ~kBA, ~x, y ), In( senc(~x, ~kBA) ) ]
+  --[
+  Receive( $I, ~x ), Commit( $I, $R, <'I', 'R', ~x, y> ),
+  FinishedA( $I, $R, <~x, y> )
+  ]->
+   [ St_A_5( $I, ~id, $R, ~kAB, ~kBA, ~x, y ) ]
+
+  /* has exactly the trivial AC variant */
+
+lemma executable:
+  exists-trace
+  "∃ #i #j A B m.
+    ((((FinishedA( A, B, m ) @ #i) ∧ (FinishedB( B, A, m ) @ #j)) ∧
+      (¬(A = B))) ∧
+     (¬(∃ #k. Reveal( A ) @ #k))) ∧
+    (¬(∃ #k. Reveal( B ) @ #k))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ #i #j A B m.
+  (FinishedA( A, B, m ) @ #i) ∧ (FinishedB( B, A, m ) @ #j)
+ ∧
+  (¬(A = B)) ∧
+  (∀ #k. (Reveal( A ) @ #k) ⇒ ⊥) ∧
+  (∀ #k. (Reveal( B ) @ #k) ⇒ ⊥)"
+*/
+simplify
+solve( St_A_4( $I, ~id, $R, ~kAB, ~kBA, ~x, ~y ) ▶₀ #i )
+  case A_3_send
+  solve( St_B_4( $R, ~id.1, $I, ~kAB.1, ~kBA.1, ~x, ~y ) ▶₀ #j )
+    case B_3_receive
+    solve( !KU( ~y ) @ #vk.1 )
+      case B_2_send
+      solve( !KU( ~x ) @ #vk.3 )
+        case A_1_send
+        solve( !KU( senc(~x, ~kBA) ) @ #vk.2 )
+          case B_4_send
+          solve( !KU( senc(~y, ~kAB) ) @ #vk.3 )
+            case A_3_send
+            SOLVED // trace found
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    ((Commit( a, b, <'I', 'R', t> ) @ #i) ∧
+     (¬((∃ #r. Reveal( a ) @ #r) ∨ (∃ #r. Reveal( b ) @ #r)))) ⇒
+    (∃ #j.
+      (Running( b, a, <'I', 'R', t> ) @ #j) ∧
+      (¬(∃ a2 b2 #i2.
+          (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ (¬(#i2 = #i)))))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #r. (Reveal( a ) @ #r) ⇒ ⊥) ∧
+  (∀ #r. (Reveal( b ) @ #r) ⇒ ⊥) ∧
+  (∀ #j.
+    (Running( b, a, <'I', 'R', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ ¬(#i2 = #i))"
+*/
+simplify
+solve( Commit( a, b, <'I', 'R', t> ) @ #i )
+  case A_4_receive
+  solve( St_A_4( $I, ~id, $R, ~kAB, ~kBA, ~x, y ) ▶₀ #i )
+    case A_3_send
+    solve( !KU( senc(~x, ~kBA) ) @ #vk )
+      case A_3_send
+      solve( !KU( ~x ) @ #vk.2 )
+        case A_1_send
+        SOLVED // trace found
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreementRESPONDER:
+  all-traces
+  "∀ a b t #i.
+    ((Commit( a, b, <'R', 'I', t> ) @ #i) ∧
+     (¬((∃ #r. Reveal( a ) @ #r) ∨ (∃ #r. Reveal( b ) @ #r)))) ⇒
+    (∃ #j.
+      (Running( b, a, <'R', 'I', t> ) @ #j) ∧
+      (¬(∃ a2 b2 #i2.
+          (Commit( a2, b2, <'R', 'I', t> ) @ #i2) ∧ (¬(#i2 = #i)))))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'R', 'I', t> ) @ #i)
+ ∧
+  (∀ #r. (Reveal( a ) @ #r) ⇒ ⊥) ∧
+  (∀ #r. (Reveal( b ) @ #r) ⇒ ⊥) ∧
+  (∀ #j.
+    (Running( b, a, <'R', 'I', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'R', 'I', t> ) @ #i2) ∧ ¬(#i2 = #i))"
+*/
+simplify
+solve( Commit( a, b, <'R', 'I', t> ) @ #i )
+  case B_3_receive
+  solve( St_B_3( $R, ~id, $I, ~kAB, ~kBA, x, ~y ) ▶₀ #i )
+    case B_2_send
+    solve( !KU( senc(~y, ~kAB) ) @ #vk )
+      case A_3_send
+      solve( !KU( ~y ) @ #vk.2 )
+        case B_2_send
+        SOLVED // trace found
+      qed
+    qed
+  qed
+qed
+
+lemma noninjectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    ((Commit( a, b, <'I', 'R', t> ) @ #i) ∧
+     (¬((∃ #r. Reveal( a ) @ #r) ∨ (∃ #r. Reveal( b ) @ #r)))) ⇒
+    (∃ #j. Running( b, a, <'I', 'R', t> ) @ #j)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #r. (Reveal( a ) @ #r) ⇒ ⊥) ∧
+  (∀ #r. (Reveal( b ) @ #r) ⇒ ⊥) ∧
+  (∀ #j. (Running( b, a, <'I', 'R', t> ) @ #j) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'I', 'R', t> ) @ #i )
+  case A_4_receive
+  solve( St_A_4( $I, ~id, $R, ~kAB, ~kBA, ~x, y ) ▶₀ #i )
+    case A_3_send
+    solve( !KU( senc(~x, ~kBA) ) @ #vk )
+      case A_3_send
+      solve( !KU( ~x ) @ #vk.2 )
+        case A_1_send
+        SOLVED // trace found
+      qed
+    qed
+  qed
+qed
+
+lemma noninjectiveagreementRESPONDER:
+  all-traces
+  "∀ a b t #i.
+    ((Commit( a, b, <'R', 'I', t> ) @ #i) ∧
+     (¬((∃ #r. Reveal( a ) @ #r) ∨ (∃ #r. Reveal( b ) @ #r)))) ⇒
+    (∃ #j. Running( b, a, <'R', 'I', t> ) @ #j)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'R', 'I', t> ) @ #i)
+ ∧
+  (∀ #r. (Reveal( a ) @ #r) ⇒ ⊥) ∧
+  (∀ #r. (Reveal( b ) @ #r) ⇒ ⊥) ∧
+  (∀ #j. (Running( b, a, <'R', 'I', t> ) @ #j) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'R', 'I', t> ) @ #i )
+  case B_3_receive
+  solve( St_B_3( $R, ~id, $I, ~kAB, ~kBA, x, ~y ) ▶₀ #i )
+    case B_2_send
+    solve( !KU( senc(~y, ~kAB) ) @ #vk )
+      case A_3_send
+      solve( !KU( ~y ) @ #vk.2 )
+        case B_2_send
+        SOLVED // trace found
+      qed
+    qed
+  qed
+qed
+
+restriction onedirectionnalsharedkey:
+  "∀ A B k1 k2 #i #j.
+    ((ShareKey( A, B, k1 ) @ #i) ∧ (ShareKey( A, B, k2 ) @ #j)) ⇒
+    ((#i = #j) ∧ (k1 = k2))"
+  // safety formula
+
+restriction only1threadsA:
+  "∀ A id1 id2 #i #j.
+    ((Create_A( A, id1 ) @ #i) ∧ (Create_A( A, id2 ) @ #j)) ⇒
+    ((#i = #j) ∧ (id1 = id2))"
+  // safety formula
+
+restriction onlyonerole:
+  "∀ X id1 id2 #i #j.
+    ((Create_A( X, id1 ) @ #i) ∧ (Create_B( X, id2 ) @ #j)) ⇒ (⊥)"
+  // safety formula
+
+restriction only1threadsB:
+  "∀ B id1 id2 #i #j.
+    ((Create_B( B, id1 ) @ #i) ∧ (Create_B( B, id2 ) @ #j)) ⇒
+    ((#i = #j) ∧ (id1 = id2))"
+  // safety formula
+
+
+
+
+
+
+
+
+
+
+
+/* All wellformedness checks were successful. */
+
+/*
+Generated from:
+Tamarin version 1.8.0
+Maude version 2.7.1
+Git revision: UNKNOWN, branch: UNKNOWN
+Compiled at: 2023-09-02 13:40:44.835695 UTC
+*/
+
+end

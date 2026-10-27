@@ -1,0 +1,155 @@
+theory OTR4
+begin
+
+builtins: diffie-hellman,signing,hashing
+functions: mac/2
+
+/*A → B : g^x
+A ← B : g^y
+A → B : “A”, SignskA (g^y, g^x), MACKm(“0”, “A”), pkA
+A ← B : “B”, SignskB (g^x, gy), MACKm(“1”, “B”), pkB
+*/
+
+rule Register_pk:  
+    [Fr(~ltk)]
+  --[Register($P)]->
+   [!Ltk($P, ~ltk),!Pk($P, pk(~ltk)),Out(pk(~ltk))]
+
+rule Reveal_ltk:
+  [!Ltk($P, ~ltk)]
+  --[Reveal($P)]->
+  [ Out(~ltk)] 
+
+rule Init_A:
+    [!Ltk($I, ~ltkI),!Pk($R,pkR),Fr(~id)]
+    --[Create_A($I,~id)]->
+    [St_A_1($I,~id,$R,~ltkI,pkR)]
+
+rule Init_B:
+  [!Ltk($R, ~ltkR),!Pk($I,pkI), Fr(~id)]
+    --[Create_B($R,~id)]->
+    [St_B_1($R,~id,$I,~ltkR,pkI)]
+
+rule A_1_send:
+let X = 'g' ^ ~x
+in
+  [St_A_1($I,~id,$R,~ltkI,pkR), Fr(~x)]
+  --[Send($I,X)]->
+  [St_A_2($I,~id,$R,~ltkI,pkR,~x,X),Out(X)]
+
+rule B_1_receive:
+let X = 'g' ^ x
+in
+    [St_B_1($R,~id,$I,~ltkR,pkI), In(X)]
+    --[Receive($R,X)]->
+    [St_B_2($R,~id,$I,~ltkR,pkI,X)]
+
+rule B_2_send:
+let Y = 'g' ^ ~y
+    Gxy = X ^ ~y
+
+in
+    [St_B_2($R,~id,$I,~ltkR,pkI,X), Fr(~y)]
+    --[Send($R,Y)]->
+    [St_B_3($R,~id,$I,~ltkR,pkI,X,~y,Y,Gxy),Out(Y)]
+
+
+rule A_2_receive:
+let Y= 'g' ^ y
+    Gxy = Y ^ ~x
+in
+    [St_A_2($I,~id,$R,~ltkI,pkR,~x,X), In(Y)]
+    --[Receive($I,Y)]->
+    [St_A_3($I,~id,$R,~ltkI,pkR,~x,X,Y,Gxy)]
+
+
+rule A_3_send:
+let hashedGxy = h(Gxy)
+    t1= <$I,sign(<Y,X>, ~ltkI),mac(hashedGxy,<'0',$I>),pk(~ltkI)>
+in
+  [St_A_3($I,~id,$R,~ltkI,pkR,~x,X,Y,Gxy)]
+  --[Send($I,t1),
+  Running($I,$R,<'R','I',<X,Y,Gxy,t1> >)]->
+  [St_A_4($I,~id,$R,~ltkI,pkR,~x,X,Y,Gxy,hashedGxy,t1),Out(t1)]
+
+rule B_3_receive:
+let hashedGxy = h(Gxy)
+    t1= <$I,sign(<Y,X>, ltkI),mac(hashedGxy,<'0',$I>),pk(ltkI)>
+in 
+    [St_B_3($R,~id,$I,~ltkR,pk(ltkI),X,~y,Y,Gxy), In(t1)]
+    --[Commit($R,$I,<'R','I',<X,Y,Gxy,t1> >)]->
+    [St_B_4($R,~id,$I,~ltkR,pk(ltkI),X,~y,Y,Gxy,hashedGxy,t1)]
+
+rule B_4_send:
+let t2= <$R,sign(<X,Y>, ~ltkR),mac(hashedGxy,<'1',$R>),pk(~ltkR)>
+in 
+    [St_B_4($R,~id,$I,~ltkR,pkI,X,~y,Y,Gxy,hashedGxy,t1)]
+    --[Send($R,t2),
+    Running($R,$I,<'I','R',< X, Y,Gxy,t1,t2> >),Secret($R,$I,Gxy)
+    ,FinishedB($R,$I,<X,Y,t1,t2>)]->
+    [St_B_5($R,~id,$I,~ltkR,pkI,X,~y,Gxy,hashedGxy,t1,t2),Out(t2)]
+
+
+rule A_4_receive:
+let t2= <$R,sign(<X,Y>, ltkR),mac(hashedGxy,<'1',$R>),pk(ltkR)>
+in
+    [St_A_4($I,~id,$R,~ltkI,pk(ltkR),~x,X,Y,Gxy,hashedGxy,t1), In(t2)]
+    --[Receive($I,Y),Commit($I,$R,<'I','R',< X,Y,Gxy,t1,t2 > >),
+    Secret($I,$R,Gxy),FinishedA($I,$R,<X,Y,t1,t2>)]->
+    [St_A_5($I,~id,$R,~ltkI,pk(ltkR),~x,X,Y,Gxy,hashedGxy,t1,t2)]
+
+
+
+
+
+
+lemma executable:
+exists-trace "Ex #i #j A B m.
+FinishedA(A, B, m)@i & FinishedB(B,A,m)@j & not (A=B) & not(Ex #k. Reveal(A)@k) & not(Ex #k. Reveal(B)@k)"
+
+// Verified
+lemma injectiveagreementINITIATOR:
+  "All a b t #i.
+    Commit(a,b,<'I','R',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'I','R',t>)@j
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'I','R',t>)@i2
+                           & not (#i2 = #i)))" 
+
+// Falsified                        
+lemma injectiveagreementRESPONDER:
+  "All a b t #i.
+    Commit(a,b,<'R','I',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'R','I',t>)@j
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'R','I',t>)@i2
+                           & not (#i2 = #i)))"
+// Verified
+lemma noninjectiveagreementINITIATOR:
+  "All a b t #i.
+    Commit(a,b,<'I','R',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'I','R',t>)@j)"
+// Falsified  
+lemma noninjectiveagreementRESPONDER:
+  "All a b t #i.
+    Commit(a,b,<'R','I',t>)@i &
+    not ((Ex #r. Reveal(a)@r) | (Ex #r. Reveal(b)@r))
+    ==> (Ex #j. Running(b,a,<'R','I',t>)@j)"
+
+// Verified
+lemma secrecy:
+  "All A B x #i.
+    Secret(A,B,x)@i &
+    not ((Ex #r. Reveal(A)@r) | (Ex #r. Reveal(B)@r))
+    ==> not (Ex #j. K(x)@j)"
+// Verified
+lemma secrecy_PFS:
+  "All A B x #i.
+    Secret(A,B,x)@i &
+    not ((Ex #r. Reveal(A)@r & r < i) |
+         (Ex #r. Reveal(B)@r & r < i))
+    ==> not (Ex #j. K(x)@j)"
+
+
+end
